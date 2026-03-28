@@ -1,0 +1,327 @@
+--- File Path: ./vite.config.ts ---
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+// https://vite.dev/config/
+export default defineConfig({
+  plugins: [react()],
+})
+
+--- End of ./vite.config.ts ---
+
+--- File Path: ./src/Spectrum-line.tsx ---
+import React, { useRef, useState, type MouseEvent } from "react";
+
+const MIN_WAVE = 380;
+const MAX_WAVE = 750;
+
+const HYDROGEN_LINES = [
+  { name: "H-δ (Фиолетовый)", wave: 410.2, color: "#6a00ff" },
+  { name: "H-γ (Синий)", wave: 434.0, color: "#0000ff" },
+  { name: "H-β (Голубой)", wave: 486.1, color: "#00ffff" },
+  { name: "H-α (Красный)", wave: 656.3, color: "#ff0000" },
+];
+
+const SpectrumLine: React.FC = () => {
+  const barRef = useRef<HTMLDivElement>(null);
+  const [hoverData, setHoverData] = useState<{
+    wave: number;
+    x: number;
+    hLine: { name: string; wave: number } | null;
+  } | null>(null);
+
+  const handleMouseMove = (e: MouseEvent<HTMLDivElement>) => {
+    if (!barRef.current) return;
+    const rect = barRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+
+    // Ограничиваем x в пределах ширины контейнера
+    const constrainedX = Math.max(0, Math.min(x, rect.width));
+    const percentage = constrainedX / rect.width;
+    const currentWave = MIN_WAVE + percentage * (MAX_WAVE - MIN_WAVE);
+
+    const nearbyLine = HYDROGEN_LINES.find(
+      (line) => Math.abs(currentWave - line.wave) < 5,
+    );
+
+    setHoverData({
+      wave: currentWave,
+      x: constrainedX,
+      hLine: nearbyLine || null,
+    });
+  };
+
+  return (
+    <div
+      style={{
+        width: "100%",
+        maxWidth: "500px",
+        marginTop: "20px",
+        fontFamily: "sans-serif",
+      }}
+    >
+      <p
+        style={{
+          margin: "0 0 10px 0",
+          fontSize: "14px",
+          fontWeight: "bold",
+          textAlign: "center",
+          color: "#333",
+        }}
+      >
+        Спектр излучения водорода (Серия Бальмера)
+      </p>
+
+      <div
+        ref={barRef}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => setHoverData(null)}
+        style={{
+          position: "relative",
+          height: "45px",
+          width: "100%",
+          borderRadius: "8px",
+          cursor: "crosshair",
+          background:
+            "linear-gradient(to right, #38008c, #4a00e0, #004dff, #00ffff, #00ff00, #ffff00, #ff8000, #ff0000, #7a0000)",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+          overflow: "visible",
+        }}
+      >
+        {HYDROGEN_LINES.map((line) => {
+          const leftPercent =
+            ((line.wave - MIN_WAVE) / (MAX_WAVE - MIN_WAVE)) * 100;
+          return (
+            <div
+              key={line.name}
+              style={{
+                position: "absolute",
+                left: `${leftPercent}%`,
+                top: 0,
+                bottom: 0,
+                width: "2px",
+                backgroundColor: "#fff",
+                boxShadow: `0 0 8px ${line.color}`,
+                zIndex: 2,
+              }}
+            />
+          );
+        })}
+
+        {hoverData && (
+          <div
+            style={{
+              position: "absolute",
+              left: `${hoverData.x}px`,
+              top: "-55px",
+              transform: "translateX(-50%)",
+              backgroundColor: "#222",
+              color: "#fff",
+              padding: "6px 12px",
+              borderRadius: "6px",
+              fontSize: "12px",
+              whiteSpace: "nowrap",
+              pointerEvents: "none",
+              zIndex: 10,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+            }}
+          >
+            {hoverData.hLine ? (
+              <>
+                <strong style={{ color: "#4ae54a" }}>
+                  {hoverData.hLine.name}
+                </strong>
+                <span>{hoverData.hLine.wave.toFixed(1)} нм</span>
+              </>
+            ) : (
+              <span>~ {hoverData.wave.toFixed(1)} нм</span>
+            )}
+            <div
+              style={{
+                position: "absolute",
+                bottom: "-5px",
+                width: 0,
+                height: 0,
+                borderLeft: "6px solid transparent",
+                borderRight: "6px solid transparent",
+                borderTop: "6px solid #222",
+              }}
+            />
+          </div>
+        )}
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          fontSize: "11px",
+          color: "#666",
+          marginTop: "8px",
+        }}
+      >
+        <span>{MIN_WAVE} нм (УФ)</span>
+        <span>{MAX_WAVE} нм (ИК)</span>
+      </div>
+    </div>
+  );
+};
+
+export default SpectrumLine;
+
+--- End of ./src/Spectrum-line.tsx ---
+
+--- File Path: ./src/main.tsx ---
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import CameraView from "./CameraView.tsx";
+
+createRoot(document.getElementById("root")!).render(
+  <StrictMode>
+    <CameraView />
+  </StrictMode>,
+);
+
+--- End of ./src/main.tsx ---
+
+--- File Path: ./src/CameraView.tsx ---
+import React, { useEffect, useRef, useState } from "react";
+import SpectrumLine from "./Spectrum-line";
+
+const CameraView: React.FC = () => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isActive, setIsActive] = useState<boolean>(false);
+  const [photo, setPhoto] = useState<string | null>(null);
+
+  useEffect(() => {
+    let stream: MediaStream | null = null;
+
+    async function startCamera() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" }, // Обычно спектроскопы крепят к основной камере
+          audio: false,
+        });
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          setIsActive(true);
+        }
+      } catch (err) {
+        setError("Доступ к камере отклонен или не поддерживается");
+      }
+    }
+
+    if (!photo) startCamera();
+
+    return () => {
+      if (stream) stream.getTracks().forEach((track) => track.stop());
+    };
+  }, [photo]);
+
+  const takePhoto = () => {
+    const video = videoRef.current;
+    if (video) {
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(video, 0, 0);
+        setPhoto(canvas.toDataURL("image/png"));
+      }
+    }
+  };
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        padding: "20px",
+        gap: "15px",
+      }}
+    >
+      <div
+        style={{
+          position: "relative",
+          width: "100%",
+          maxWidth: "500px",
+          background: "#000",
+          borderRadius: "12px",
+          overflow: "hidden",
+          aspectRatio: "4/3",
+        }}
+      >
+        {photo ? (
+          <img
+            src={photo}
+            alt="Result"
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          />
+        ) : (
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              display: isActive ? "block" : "none",
+            }}
+          />
+        )}
+        {!isActive && !error && !photo && (
+          <div
+            style={{
+              color: "#fff",
+              height: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            Инициализация...
+          </div>
+        )}
+        {error && (
+          <div
+            style={{ color: "#ff4d4d", padding: "20px", textAlign: "center" }}
+          >
+            {error}
+          </div>
+        )}
+      </div>
+
+      <button
+        onClick={photo ? () => setPhoto(null) : takePhoto}
+        style={{
+          padding: "12px 24px",
+          fontSize: "16px",
+          borderRadius: "30px",
+          border: "none",
+          background: "#007AFF",
+          color: "white",
+          cursor: "pointer",
+          fontWeight: "bold",
+        }}
+      >
+        {photo ? "Сделать новый снимок" : "Зафиксировать спектр"}
+      </button>
+
+      <SpectrumLine />
+    </div>
+  );
+};
+
+export default CameraView;
+
+--- End of ./src/CameraView.tsx ---
+
